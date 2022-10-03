@@ -1,0 +1,11 @@
+[package]
+name = "ckb-cli-light-client"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+ckb-sdk = { git = "https://github.com/thewawar/ckb-sdk-rust.git", branch = "support-light-client", version = "2.2.0" }
+ckb-signer = { git = "https://github.com/thewawar/ckb-cli.git", branch = "support-light-client", version = "0.3.0" }
+clap = "4.0.8"
