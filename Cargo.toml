@@ -8,4 +8,5 @@ edition = "2021"
 [dependencies]
 ckb-sdk = { git = "https://github.com/thewawar/ckb-sdk-rust.git", branch = "support-light-client", version = "2.2.0" }
 ckb-signer = { git = "https://github.com/thewawar/ckb-cli.git", branch = "support-light-client", version = "0.3.0" }
-clap = "4.0.8"
+ckb-types = "0.104.0"
+clap = { version = "4.0.8", features = ["derive"] }
