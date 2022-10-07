@@ -432,7 +432,7 @@ dependencies = [
 [[package]]
 name = "ckb-sdk"
 version = "2.2.0"
-source = "git+https://github.com/thewawar/ckb-sdk-rust.git?branch=support-light-client#3dcc2d837510fc22891bcad779b5a2936c24d50f"
+source = "git+https://github.com/thewawar/ckb-sdk-rust.git?branch=support-light-client#29a194049ed2b37301a45db0529841458fca93d7"
 dependencies = [
  "anyhow",
  "bech32",

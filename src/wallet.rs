@@ -7,7 +7,7 @@ use ckb_sdk::{
         LightClientRpcClient,
     },
     traits::{
-        LightClientCellCollector, LightClientCellDepResolver, LightClientHeaderDepResolver,
+        DefaultCellDepResolver, LightClientCellCollector, LightClientHeaderDepResolver,
         LightClientTransactionDependencyProvider, SecpCkbRawKeySigner,
     },
     tx_builder::{transfer::CapacityTransferBuilder, CapacityBalancer, TxBuilder},
@@ -82,7 +82,9 @@ pub fn build_transfer_tx(
     //   * HeaderDepResolver
     //   * CellCollector
     //   * TransactionDependencyProvider
-    let cell_dep_resolver = LightClientCellDepResolver::from_rpc(rpc_url)?;
+    let mut client = LightClientRpcClient::new(rpc_url);
+    let genesis_block = client.get_genesis_block()?.into();
+    let cell_dep_resolver = DefaultCellDepResolver::from_genesis(&genesis_block)?;
     let header_dep_resolver = LightClientHeaderDepResolver::new(rpc_url);
     let tx_dep_provider = LightClientTransactionDependencyProvider::new(rpc_url);
     let mut cell_collector = LightClientCellCollector::new(rpc_url);
