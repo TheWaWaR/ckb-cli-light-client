@@ -1,27 +1,55 @@
 use std::error::Error as StdErr;
 use std::path::PathBuf;
 
-use ckb_sdk::types::{Address, HumanCapacity};
+use anyhow::anyhow;
+use ckb_jsonrpc_types as json_types;
+use ckb_sdk::{
+    rpc::LightClientRpcClient,
+    types::{Address, HumanCapacity},
+};
 use ckb_types::H256;
 use clap::{Parser, Subcommand, ValueEnum};
+
+mod rpc;
+mod wallet;
+
+use wallet::{build_transfer_tx, get_capacity};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about=None)]
 struct Cli {
+    /// CKB light client rpc url
+    #[clap(long, value_name = "URL", default_value = "http://127.0.0.1:9000")]
+    rpc: String,
+
     #[command(subcommand)]
     command: Commands,
 }
 
 #[derive(Subcommand, Debug)]
 enum Commands {
+    /// Get capacity of an address
+    GetCapacity {
+        #[arg(long, value_name = "ADDR")]
+        address: Address,
+    },
     /// Transfer some capacity from given address to a receiver address
     Transfer {
+        /// The receiver address
         #[arg(long, value_name = "ADDR")]
-        from_address: Address,
+        from_address: Option<Address>,
+
+        /// The sender private key (hex string)
+        #[arg(long, value_name = "PRIVKEY")]
+        from_key: Option<H256>,
+
         #[arg(long, value_name = "ADDR")]
         to_address: Address,
+
+        /// The capacity to transfer (unit: CKB, example: 102.43)
         #[arg(long, value_name = "CAPACITY")]
         capacity: HumanCapacity,
+
         #[arg(long)]
         skip_check_to_address: bool,
     },
@@ -42,10 +70,11 @@ pub enum Order {
 }
 
 #[derive(Subcommand, Debug)]
-enum RpcCommands {
+pub enum RpcCommands {
     SetScripts {
-        #[arg(long)]
-        scripts: Vec<PathBuf>,
+        /// The script status list (format: "ADDR,NUM", example: "ckt1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq,5896000")
+        #[arg(long, value_name = "SCRIPT_STATUS")]
+        scripts: Vec<String>,
     },
     GetScripts,
     GetCells {
@@ -146,6 +175,47 @@ enum DaoCommands {
 
 fn main() -> Result<(), Box<dyn StdErr>> {
     let cli = Cli::parse();
-    println!("cli: {:#?}", cli);
+    match cli.command {
+        Commands::GetCapacity { address } => {
+            let capacity = get_capacity(cli.rpc.as_str(), address)?;
+            println!("capacity: {}", HumanCapacity(capacity));
+        }
+        Commands::Transfer {
+            from_address,
+            from_key,
+            to_address,
+            capacity,
+            skip_check_to_address,
+        } => {
+            let from_key = from_key
+                .map(|data| {
+                    secp256k1::SecretKey::from_slice(data.as_bytes())
+                        .map_err(|err| anyhow!("invalid from key: {}", err))
+                })
+                .transpose()?;
+            let tx = build_transfer_tx(
+                cli.rpc.as_str(),
+                from_address,
+                from_key,
+                to_address,
+                capacity.0,
+                skip_check_to_address,
+            )?;
+            // Send transaction
+            let json_tx = json_types::TransactionView::from(tx);
+            println!("tx: {}", serde_json::to_string_pretty(&json_tx).unwrap());
+            let _tx_hash = LightClientRpcClient::new(cli.rpc.as_str())
+                .send_transaction(json_tx.inner)
+                .expect("send transaction");
+            println!(">>> tx sent! <<<");
+        }
+        Commands::Dao(dao) => {
+            println!("dao: {:#?}", dao);
+            return Err(anyhow!("not yet implemented").into());
+        }
+        Commands::Rpc(cmd) => {
+            rpc::invoke(cli.rpc.as_str(), cmd)?;
+        }
+    }
     Ok(())
 }
