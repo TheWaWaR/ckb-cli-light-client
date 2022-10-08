@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use anyhow::{anyhow, Error};
 use ckb_hash::blake2b_256;
+use ckb_jsonrpc_types as json_types;
 use ckb_sdk::{
     constants::{MULTISIG_TYPE_HASH, SIGHASH_TYPE_HASH},
     rpc::{
@@ -12,11 +13,11 @@ use ckb_sdk::{
     },
     traits::{
         DefaultCellDepResolver, LightClientCellCollector, LightClientHeaderDepResolver,
-        LightClientTransactionDependencyProvider, SecpCkbRawKeySigner,
+        LightClientTransactionDependencyProvider, SecpCkbRawKeySigner, Signer,
     },
     tx_builder::{transfer::CapacityTransferBuilder, CapacityBalancer, TxBuilder},
     unlock::{ScriptUnlocker, SecpSighashUnlocker},
-    Address, ScriptId, SECP256K1,
+    Address, HumanCapacity, ScriptId, SECP256K1,
 };
 use ckb_signer::{FileSystemKeystoreSigner, KeyStore, ScryptType};
 use rpassword::prompt_password;
@@ -29,7 +30,7 @@ use ckb_types::{
     H160, H256,
 };
 
-pub fn get_capacity(rpc_url: &str, address: Address) -> Result<u64, Error> {
+pub fn get_capacity(rpc_url: &str, address: Address) -> Result<(), Error> {
     let mut client = LightClientRpcClient::new(rpc_url);
     let script = Script::from(&address).into();
     if !client
@@ -37,7 +38,7 @@ pub fn get_capacity(rpc_url: &str, address: Address) -> Result<u64, Error> {
         .iter()
         .any(|status| status.script == script)
     {
-        println!("[NOTE]: address not registered, you may use `rpc set-scripts` subcommand to register the address");
+        return Err(anyhow!("address not registered, you may use `rpc set-scripts` subcommand to register the address"));
     }
     let search_key = SearchKey {
         script,
@@ -46,60 +47,48 @@ pub fn get_capacity(rpc_url: &str, address: Address) -> Result<u64, Error> {
         group_by_transaction: None,
     };
     let capacity: u64 = client.get_cells_capacity(search_key)?.value();
-    Ok(capacity)
+    println!("capacity: {} CKB", HumanCapacity(capacity));
+    Ok(())
 }
 
-fn get_keystore() -> Result<KeyStore, Error> {
-    let ckb_cli_dir = if let Ok(dir) = env::var("CKB_CLI_HOME") {
-        dir
-    } else if let Ok(home) = env::var("HOME") {
-        format!("{}/.ckb-cli", home)
-    } else {
-        return Err(anyhow!(
-            "CKB_CLI_HOME and HOME environment variables not set"
-        ));
-    };
-    let mut keystore_dir = PathBuf::from(ckb_cli_dir);
-    keystore_dir.push("keystore");
-    Ok(KeyStore::from_dir(keystore_dir, ScryptType::default())?)
+pub fn transfer(
+    rpc_url: &str,
+    from_address: Option<Address>,
+    from_key: Option<H256>,
+    to_address: Address,
+    capacity: u64,
+    skip_check_to_address: bool,
+    debug: bool,
+) -> Result<(), Error> {
+    let tx = build_transfer_tx(
+        rpc_url,
+        from_address,
+        from_key,
+        to_address,
+        capacity,
+        skip_check_to_address,
+    )?;
+    // Send transaction
+    let json_tx = json_types::TransactionView::from(tx);
+    if debug {
+        println!("tx: {}", serde_json::to_string_pretty(&json_tx).unwrap());
+    }
+    let tx_hash = LightClientRpcClient::new(rpc_url)
+        .send_transaction(json_tx.inner)
+        .expect("send transaction");
+    println!(">>> tx sent! {:#x} <<<", tx_hash);
+    Ok(())
 }
 
 pub fn build_transfer_tx(
     rpc_url: &str,
     from_address: Option<Address>,
-    from_key: Option<secp256k1::SecretKey>,
+    from_key: Option<H256>,
     to_address: Address,
     capacity: u64,
     skip_check_to_address: bool,
 ) -> Result<TransactionView, Error> {
-    let (sender, signer) = if let Some(privkey) = from_key {
-        let sender = {
-            let pubkey = secp256k1::PublicKey::from_secret_key(&SECP256K1, &privkey);
-            let hash160 = blake2b_256(&pubkey.serialize()[..])[0..20].to_vec();
-            Script::new_builder()
-                .code_hash(SIGHASH_TYPE_HASH.pack())
-                .hash_type(ScriptHashType::Type.into())
-                .args(Bytes::from(hash160).pack())
-                .build()
-        };
-        let signer = SecpCkbRawKeySigner::new_with_secret_keys(vec![privkey]);
-        (sender, Box::new(signer) as Box<_>)
-    } else {
-        let from_address = from_address.expect("from address");
-        let sender = Script::from(&from_address);
-        if sender.code_hash().as_slice() != SIGHASH_TYPE_HASH.as_bytes()
-            || sender.hash_type().as_slice() != [ScriptHashType::Type as u8]
-            || sender.args().raw_data().len() != 20
-        {
-            return Err(anyhow!("from address is not sighash address"));
-        }
-        let account = H160::from_slice(sender.args().raw_data().as_ref()).unwrap();
-        let pass = prompt_password("Password: ")?;
-        let signer = FileSystemKeystoreSigner::new(get_keystore()?);
-        signer.unlock(&account, pass.as_bytes())?;
-        (sender, Box::new(signer) as Box<_>)
-    };
-
+    let (sender, signer) = get_signer(from_address, from_key)?;
     let sighash_unlocker = SecpSighashUnlocker::from(signer);
     let sighash_script_id = ScriptId::new_type(SIGHASH_TYPE_HASH.clone());
     let mut unlockers = HashMap::default();
@@ -107,12 +96,6 @@ pub fn build_transfer_tx(
         sighash_script_id,
         Box::new(sighash_unlocker) as Box<dyn ScriptUnlocker>,
     );
-
-    // Build CapacityBalancer
-    let placeholder_witness = WitnessArgs::new_builder()
-        .lock(Some(Bytes::from(vec![0u8; 65])).pack())
-        .build();
-    let balancer = CapacityBalancer::new_simple(sender, placeholder_witness, 1000);
 
     // Build:
     //   * CellDepResolver
@@ -125,6 +108,12 @@ pub fn build_transfer_tx(
     let header_dep_resolver = LightClientHeaderDepResolver::new(rpc_url);
     let tx_dep_provider = LightClientTransactionDependencyProvider::new(rpc_url);
     let mut cell_collector = LightClientCellCollector::new(rpc_url);
+
+    // Build CapacityBalancer
+    let placeholder_witness = WitnessArgs::new_builder()
+        .lock(Some(Bytes::from(vec![0u8; 65])).pack())
+        .build();
+    let balancer = CapacityBalancer::new_simple(sender, placeholder_witness, 1000);
 
     // Build the transaction
     let receiver = Script::from(&to_address);
@@ -159,4 +148,58 @@ pub fn build_transfer_tx(
     )?;
     assert!(still_locked_groups.is_empty());
     Ok(tx)
+}
+
+pub fn get_signer(
+    from_address: Option<Address>,
+    from_key: Option<H256>,
+) -> Result<(Script, Box<dyn Signer>), Error> {
+    let from_key = from_key
+        .map(|data| {
+            secp256k1::SecretKey::from_slice(data.as_bytes())
+                .map_err(|err| anyhow!("invalid from key: {}", err))
+        })
+        .transpose()?;
+    if let Some(privkey) = from_key {
+        let sender = {
+            let pubkey = secp256k1::PublicKey::from_secret_key(&SECP256K1, &privkey);
+            let hash160 = blake2b_256(&pubkey.serialize()[..])[0..20].to_vec();
+            Script::new_builder()
+                .code_hash(SIGHASH_TYPE_HASH.pack())
+                .hash_type(ScriptHashType::Type.into())
+                .args(Bytes::from(hash160).pack())
+                .build()
+        };
+        let signer = SecpCkbRawKeySigner::new_with_secret_keys(vec![privkey]);
+        Ok((sender, Box::new(signer) as Box<_>))
+    } else {
+        let from_address = from_address.expect("from address");
+        let sender = Script::from(&from_address);
+        if sender.code_hash().as_slice() != SIGHASH_TYPE_HASH.as_bytes()
+            || sender.hash_type().as_slice() != [ScriptHashType::Type as u8]
+            || sender.args().raw_data().len() != 20
+        {
+            return Err(anyhow!("from address is not sighash address"));
+        }
+        let account = H160::from_slice(sender.args().raw_data().as_ref()).unwrap();
+        let pass = prompt_password("Password: ")?;
+        let signer = FileSystemKeystoreSigner::new(get_keystore()?);
+        signer.unlock(&account, pass.as_bytes())?;
+        Ok((sender, Box::new(signer) as Box<_>))
+    }
+}
+
+fn get_keystore() -> Result<KeyStore, Error> {
+    let ckb_cli_dir = if let Ok(dir) = env::var("CKB_CLI_HOME") {
+        dir
+    } else if let Ok(home) = env::var("HOME") {
+        format!("{}/.ckb-cli", home)
+    } else {
+        return Err(anyhow!(
+            "CKB_CLI_HOME and HOME environment variables not set"
+        ));
+    };
+    let mut keystore_dir = PathBuf::from(ckb_cli_dir);
+    keystore_dir.push("keystore");
+    Ok(KeyStore::from_dir(keystore_dir, ScryptType::default())?)
 }

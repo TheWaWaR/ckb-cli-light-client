@@ -17,3 +17,5 @@ secp256k1 = { version = "0.20", features = ["recovery"] }
 serde_json = "1.0.85"
 hex = "0.4.3"
 rpassword = "7.0.0"
+byteorder = "1.4.3"
+serde = { version = "1.0", features = ["derive"] }

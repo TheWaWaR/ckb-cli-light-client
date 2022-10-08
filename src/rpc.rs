@@ -1,18 +1,119 @@
+use std::fs;
+use std::path::PathBuf;
+use std::str::FromStr;
+
 use anyhow::{anyhow, Error};
 use ckb_jsonrpc_types as json_types;
 use ckb_sdk::{
     rpc::ckb_light_client::{
-        LightClientRpcClient, ScriptStatus, ScriptType, SearchKey, SearchKeyFilter,
+        LightClientRpcClient, Order as JsonOrder, ScriptStatus, ScriptType, SearchKey,
+        SearchKeyFilter,
     },
     types::Address,
 };
-use ckb_types::{h256, packed::Script};
-use std::fs;
-use std::str::FromStr;
+use ckb_types::{h256, packed::Script, H256};
+use clap::{Subcommand, ValueEnum};
 
-use super::RpcCommands;
+#[derive(Subcommand, Debug)]
+pub enum RpcCommands {
+    SetScripts {
+        /// The script status list (format: "ADDR,NUM", example: "ckt1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq,5896000")
+        #[arg(long, value_name = "SCRIPT_STATUS")]
+        scripts: Vec<String>,
+    },
+    GetScripts,
+    GetCells {
+        /// The search key config, use `example-search-key` sub-command to generate a example value
+        #[arg(long, value_name = "FILE")]
+        search_key: PathBuf,
+        #[arg(long, value_enum, default_value = "asc")]
+        order: Order,
+        #[arg(long, value_name = "NUM", default_value = "20")]
+        limit: u32,
+        #[arg(long, value_name = "HEX")]
+        after: Option<String>,
+    },
+    GetTransactions {
+        /// The search key config, use `example-search-key` sub-command to generate a example value
+        #[arg(long, value_name = "FILE")]
+        search_key: PathBuf,
+        #[arg(long, value_enum, default_value = "asc")]
+        order: Order,
+        #[arg(long, value_name = "NUM", default_value = "20")]
+        limit: u32,
+        #[arg(long, value_name = "HEX")]
+        after: Option<String>,
+    },
+    GetCellsCapacity {
+        /// The search key config, use `example-search-key` sub-command to generate a example value
+        #[arg(long, value_name = "FILE")]
+        search_key: PathBuf,
+    },
+    SendTransaction {
+        #[arg(long, value_name = "FILE")]
+        transaction: PathBuf,
+    },
+    GetTipHeader,
+    GetGenesisBlock,
+    GetHeader {
+        #[arg(long, value_name = "H256")]
+        block_hash: H256,
+    },
+    GetTransaction {
+        #[arg(long, value_name = "H256")]
+        tx_hash: H256,
+    },
+    /// Fetch a header from remote node.
+    ///
+    /// Returns: FetchStatus<HeaderView>
+    FetchHeader {
+        #[arg(long, value_name = "H256")]
+        block_hash: H256,
+    },
+    /// Fetch a transaction from remote node.
+    ///
+    /// Returns: FetchStatus<TransactionWithHeader>
+    FetchTransaction {
+        #[arg(long, value_name = "H256")]
+        tx_hash: H256,
+    },
+    /// Remove fetched headers.
+    ///
+    /// Returns:
+    ///   * The removed block hashes
+    RemoveHeaders {
+        /// The headers to remove, leaving this argument empty to remove all headers
+        #[arg(long, value_name = "Option<Vec<H256>>")]
+        block_hashes: Option<Vec<H256>>,
+    },
+    /// Remove fetched transactions.
+    ///
+    /// Returns:
+    ///   * The removed transaction hashes
+    RemoveTransactions {
+        /// The transactions to remove, leaving this argument empty to remove all transactions
+        #[arg(long, value_name = "Option<Vec<H256>>")]
+        tx_hashes: Option<Vec<H256>>,
+    },
+    GetPeers,
+}
 
-pub fn invoke(rpc_url: &str, cmd: RpcCommands) -> Result<(), Error> {
+#[derive(ValueEnum, Eq, PartialEq, Clone, Copy, Debug)]
+pub enum Order {
+    Desc,
+    Asc,
+}
+
+impl From<Order> for JsonOrder {
+    fn from(value: Order) -> JsonOrder {
+        match value {
+            Order::Asc => JsonOrder::Asc,
+            Order::Desc => JsonOrder::Desc,
+        }
+    }
+}
+
+pub fn invoke(rpc_url: &str, cmd: RpcCommands, debug: bool) -> Result<(), Error> {
     let mut client = LightClientRpcClient::new(rpc_url);
     match cmd {
         RpcCommands::SetScripts { scripts } => {
@@ -35,10 +136,12 @@ pub fn invoke(rpc_url: &str, cmd: RpcCommands) -> Result<(), Error> {
                     })
                 })
                 .collect::<Result<Vec<ScriptStatus>, Error>>()?;
-            println!(
-                "scripts: \n{}",
-                serde_json::to_string_pretty(&scripts).unwrap()
-            );
+            if debug {
+                println!(
+                    "scripts: \n{}",
+                    serde_json::to_string_pretty(&scripts).unwrap()
+                );
+            }
             client.set_scripts(scripts)?;
             println!("success!");
         }

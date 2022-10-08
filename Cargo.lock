@@ -272,6 +272,7 @@ name = "ckb-cli-light-client"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "byteorder",
  "ckb-hash",
  "ckb-jsonrpc-types",
  "ckb-sdk",
@@ -281,6 +282,7 @@ dependencies = [
  "hex",
  "rpassword",
  "secp256k1",
+ "serde",
  "serde_json",
 ]
 
