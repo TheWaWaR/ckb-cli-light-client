@@ -8,7 +8,7 @@ use ckb_sdk::{
     types::{Address, HumanCapacity},
 };
 use ckb_types::H256;
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{ArgGroup, Parser, Subcommand, ValueEnum};
 
 mod rpc;
 mod wallet;
@@ -22,6 +22,9 @@ struct Cli {
     #[clap(long, value_name = "URL", default_value = "http://127.0.0.1:9000")]
     rpc: String,
 
+    #[clap(long)]
+    debug: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -34,15 +37,17 @@ enum Commands {
         address: Address,
     },
     /// Transfer some capacity from given address to a receiver address
+    #[command(group(ArgGroup::new("from").required(true).args(["from_address", "from_key"])))]
     Transfer {
-        /// The receiver address
+        /// The sender address (sighash only, also used to match key in ckb-cli keystore)
         #[arg(long, value_name = "ADDR")]
         from_address: Option<Address>,
 
-        /// The sender private key (hex string)
+        /// The sender private key (hex string, also used to generate sighash address)
         #[arg(long, value_name = "PRIVKEY")]
         from_key: Option<H256>,
 
+        /// The receiver address
         #[arg(long, value_name = "ADDR")]
         to_address: Address,
 
@@ -76,9 +81,9 @@ pub enum Order {
     Asc,
 }
 
-impl Into<JsonOrder> for Order {
-    fn into(self: Order) -> JsonOrder {
-        match self {
+impl From<Order> for JsonOrder {
+    fn from(value: Order) -> JsonOrder {
+        match value {
             Order::Asc => JsonOrder::Asc,
             Order::Desc => JsonOrder::Desc,
         }
@@ -224,11 +229,13 @@ fn main() -> Result<(), Box<dyn StdErr>> {
             )?;
             // Send transaction
             let json_tx = json_types::TransactionView::from(tx);
-            println!("tx: {}", serde_json::to_string_pretty(&json_tx).unwrap());
-            let _tx_hash = LightClientRpcClient::new(cli.rpc.as_str())
+            if cli.debug {
+                println!("tx: {}", serde_json::to_string_pretty(&json_tx).unwrap());
+            }
+            let tx_hash = LightClientRpcClient::new(cli.rpc.as_str())
                 .send_transaction(json_tx.inner)
                 .expect("send transaction");
-            println!(">>> tx sent! <<<");
+            println!(">>> tx sent! {:#x} <<<", tx_hash);
         }
         Commands::Dao(dao) => {
             println!("dao: {:#?}", dao);

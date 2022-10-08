@@ -59,7 +59,13 @@ pub fn invoke(rpc_url: &str, cmd: RpcCommands) -> Result<(), Error> {
             let search_key: SearchKey = serde_json::from_str(&content)?;
             let after = after
                 .as_ref()
-                .map(|s| if s.starts_with("0x") { &s[2..] } else { &s[..] })
+                .map(|s| {
+                    if let Some(stripped) = s.strip_prefix("0x") {
+                        stripped
+                    } else {
+                        &s[..]
+                    }
+                })
                 .map(|s| hex::decode(s).map(json_types::JsonBytes::from_vec))
                 .transpose()
                 .map_err(|err| anyhow!("parse `after` field error: {}", err))?;
@@ -76,7 +82,13 @@ pub fn invoke(rpc_url: &str, cmd: RpcCommands) -> Result<(), Error> {
             let search_key: SearchKey = serde_json::from_str(&content)?;
             let after = after
                 .as_ref()
-                .map(|s| if s.starts_with("0x") { &s[2..] } else { &s[..] })
+                .map(|s| {
+                    if let Some(stripped) = s.strip_prefix("0x") {
+                        stripped
+                    } else {
+                        &s[..]
+                    }
+                })
                 .map(|s| hex::decode(&s).map(json_types::JsonBytes::from_vec))
                 .transpose()
                 .map_err(|err| anyhow!("parse `after` field error: {}", err))?;

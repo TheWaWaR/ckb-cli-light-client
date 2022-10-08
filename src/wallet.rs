@@ -1,3 +1,7 @@
+use std::collections::HashMap;
+use std::env;
+use std::path::PathBuf;
+
 use anyhow::{anyhow, Error};
 use ckb_hash::blake2b_256;
 use ckb_sdk::{
@@ -14,14 +18,16 @@ use ckb_sdk::{
     unlock::{ScriptUnlocker, SecpSighashUnlocker},
     Address, ScriptId, SECP256K1,
 };
+use ckb_signer::{FileSystemKeystoreSigner, KeyStore, ScryptType};
+use rpassword::prompt_password;
+
 use ckb_types::{
     bytes::Bytes,
     core::{ScriptHashType, TransactionView},
     packed::{CellOutput, Script, WitnessArgs},
     prelude::*,
-    H256,
+    H160, H256,
 };
-use std::collections::HashMap;
 
 pub fn get_capacity(rpc_url: &str, address: Address) -> Result<u64, Error> {
     let mut client = LightClientRpcClient::new(rpc_url);
@@ -43,6 +49,21 @@ pub fn get_capacity(rpc_url: &str, address: Address) -> Result<u64, Error> {
     Ok(capacity)
 }
 
+fn get_keystore() -> Result<KeyStore, Error> {
+    let ckb_cli_dir = if let Ok(dir) = env::var("CKB_CLI_HOME") {
+        dir
+    } else if let Ok(home) = env::var("HOME") {
+        format!("{}/.ckb-cli", home)
+    } else {
+        return Err(anyhow!(
+            "CKB_CLI_HOME and HOME environment variables not set"
+        ));
+    };
+    let mut keystore_dir = PathBuf::from(ckb_cli_dir);
+    keystore_dir.push("keystore");
+    Ok(KeyStore::from_dir(keystore_dir, ScryptType::default())?)
+}
+
 pub fn build_transfer_tx(
     rpc_url: &str,
     from_address: Option<Address>,
@@ -51,19 +72,35 @@ pub fn build_transfer_tx(
     capacity: u64,
     skip_check_to_address: bool,
 ) -> Result<TransactionView, Error> {
-    let from_key = from_key.ok_or_else(|| anyhow!("from key is missing"))?;
-    let sender = {
-        let pubkey = secp256k1::PublicKey::from_secret_key(&SECP256K1, &from_key);
-        let hash160 = blake2b_256(&pubkey.serialize()[..])[0..20].to_vec();
-        Script::new_builder()
-            .code_hash(SIGHASH_TYPE_HASH.pack())
-            .hash_type(ScriptHashType::Type.into())
-            .args(Bytes::from(hash160).pack())
-            .build()
+    let (sender, signer) = if let Some(privkey) = from_key {
+        let sender = {
+            let pubkey = secp256k1::PublicKey::from_secret_key(&SECP256K1, &privkey);
+            let hash160 = blake2b_256(&pubkey.serialize()[..])[0..20].to_vec();
+            Script::new_builder()
+                .code_hash(SIGHASH_TYPE_HASH.pack())
+                .hash_type(ScriptHashType::Type.into())
+                .args(Bytes::from(hash160).pack())
+                .build()
+        };
+        let signer = SecpCkbRawKeySigner::new_with_secret_keys(vec![privkey]);
+        (sender, Box::new(signer) as Box<_>)
+    } else {
+        let from_address = from_address.expect("from address");
+        let sender = Script::from(&from_address);
+        if sender.code_hash().as_slice() != SIGHASH_TYPE_HASH.as_bytes()
+            || sender.hash_type().as_slice() != [ScriptHashType::Type as u8]
+            || sender.args().raw_data().len() != 20
+        {
+            return Err(anyhow!("from address is not sighash address"));
+        }
+        let account = H160::from_slice(sender.args().raw_data().as_ref()).unwrap();
+        let pass = prompt_password("Password: ")?;
+        let signer = FileSystemKeystoreSigner::new(get_keystore()?);
+        signer.unlock(&account, pass.as_bytes())?;
+        (sender, Box::new(signer) as Box<_>)
     };
 
-    let signer = SecpCkbRawKeySigner::new_with_secret_keys(vec![from_key]);
-    let sighash_unlocker = SecpSighashUnlocker::from(Box::new(signer) as Box<_>);
+    let sighash_unlocker = SecpSighashUnlocker::from(signer);
     let sighash_script_id = ScriptId::new_type(SIGHASH_TYPE_HASH.clone());
     let mut unlockers = HashMap::default();
     unlockers.insert(
