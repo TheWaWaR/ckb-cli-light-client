@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use anyhow::anyhow;
 use ckb_jsonrpc_types as json_types;
 use ckb_sdk::{
-    rpc::LightClientRpcClient,
+    rpc::ckb_light_client::{LightClientRpcClient, Order as JsonOrder},
     types::{Address, HumanCapacity},
 };
 use ckb_types::H256;
@@ -58,6 +58,13 @@ enum Commands {
     #[command(subcommand)]
     Dao(DaoCommands),
 
+    /// Output the example `SearchKey` value
+    ExampleSearchKey {
+        /// With example `SearchKeyFilter` value
+        #[arg(long)]
+        with_filter: bool,
+    },
+
     /// Send jsonrpc call the ckb-light-client rpc server
     #[command(subcommand)]
     Rpc(RpcCommands),
@@ -67,6 +74,15 @@ enum Commands {
 pub enum Order {
     Desc,
     Asc,
+}
+
+impl Into<JsonOrder> for Order {
+    fn into(self: Order) -> JsonOrder {
+        match self {
+            Order::Asc => JsonOrder::Asc,
+            Order::Desc => JsonOrder::Desc,
+        }
+    }
 }
 
 #[derive(Subcommand, Debug)]
@@ -80,18 +96,22 @@ pub enum RpcCommands {
     GetCells {
         #[arg(long, value_name = "FILE")]
         search_key: PathBuf,
-        #[arg(long, value_enum)]
+        #[arg(long, value_enum, default_value = "asc")]
         order: Order,
-        #[arg(long, value_name = "NUM")]
+        #[arg(long, value_name = "NUM", default_value = "20")]
         limit: u32,
+        #[arg(long, value_name = "HEX")]
+        after: Option<String>,
     },
     GetTransactions {
         #[arg(long, value_name = "FILE")]
         search_key: PathBuf,
-        #[arg(long, value_enum)]
+        #[arg(long, value_enum, default_value = "asc")]
         order: Order,
-        #[arg(long, value_name = "NUM")]
+        #[arg(long, value_name = "NUM", default_value = "20")]
         limit: u32,
+        #[arg(long, value_name = "HEX")]
+        after: Option<String>,
     },
     GetCellsCapacity {
         #[arg(long, value_name = "FILE")]
@@ -102,6 +122,7 @@ pub enum RpcCommands {
         transaction: PathBuf,
     },
     GetTipHeader,
+    GetGenesisBlock,
     GetHeader {
         #[arg(long, value_name = "H256")]
         block_hash: H256,
@@ -178,7 +199,7 @@ fn main() -> Result<(), Box<dyn StdErr>> {
     match cli.command {
         Commands::GetCapacity { address } => {
             let capacity = get_capacity(cli.rpc.as_str(), address)?;
-            println!("capacity: {}", HumanCapacity(capacity));
+            println!("capacity: {} CKB", HumanCapacity(capacity));
         }
         Commands::Transfer {
             from_address,
@@ -212,6 +233,9 @@ fn main() -> Result<(), Box<dyn StdErr>> {
         Commands::Dao(dao) => {
             println!("dao: {:#?}", dao);
             return Err(anyhow!("not yet implemented").into());
+        }
+        Commands::ExampleSearchKey { with_filter } => {
+            rpc::print_example_search_key(with_filter);
         }
         Commands::Rpc(cmd) => {
             rpc::invoke(cli.rpc.as_str(), cmd)?;
