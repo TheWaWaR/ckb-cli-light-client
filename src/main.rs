@@ -1,8 +1,6 @@
 use std::error::Error as StdErr;
 
-use ckb_sdk::{
-    types::{Address, HumanCapacity},
-};
+use ckb_sdk::types::{Address, HumanCapacity};
 use ckb_types::H256;
 use clap::{ArgGroup, Parser, Subcommand};
 

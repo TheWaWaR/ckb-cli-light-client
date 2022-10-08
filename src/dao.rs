@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 use std::str::FromStr;
+use std::thread;
+use std::time::Duration;
 
 use anyhow::{anyhow, Error};
 use byteorder::{ByteOrder, LittleEndian};
@@ -204,16 +206,37 @@ fn build_and_send_dao_tx(
     let tx_dep_provider = LightClientTransactionDependencyProvider::new(rpc_url);
     let mut cell_collector = LightClientCellCollector::new(rpc_url);
 
-    let (tx, still_locked_groups) = builder.build_unlocked(
-        &mut cell_collector,
-        &cell_dep_resolver,
-        &header_dep_resolver,
-        &tx_dep_provider,
-        &balancer,
-        &unlockers,
-    )?;
+    let mut retry = 0;
+    let (tx, still_locked_groups) = loop {
+        match builder.build_unlocked(
+            &mut cell_collector,
+            &cell_dep_resolver,
+            &header_dep_resolver,
+            &tx_dep_provider,
+            &balancer,
+            &unlockers,
+        ) {
+            Ok((tx, still_locked_groups)) => {
+                break (tx, still_locked_groups);
+            }
+            Err(err) => {
+                if header_dep_resolver.is_ready() && tx_dep_provider.is_ready() {
+                    return Err(err.into());
+                } else {
+                    if retry == 10 {
+                        return Err(anyhow!("retry 10 times, error: {}", err));
+                    }
+                    if debug {
+                        println!("error: {}, sleep 0.5 seconds (retry={}).....", retry, err);
+                    }
+                    thread::sleep(Duration::from_millis(500));
+                    retry += 1;
+                    continue;
+                }
+            }
+        }
+    };
     assert!(still_locked_groups.is_empty());
-
     // Send transaction
     let json_tx = json_types::TransactionView::from(tx);
     if debug {
