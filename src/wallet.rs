@@ -80,7 +80,7 @@ pub fn transfer(
     Ok(())
 }
 
-pub fn build_transfer_tx(
+fn build_transfer_tx(
     rpc_url: &str,
     from_address: Option<Address>,
     from_key: Option<H256>,
@@ -191,15 +191,18 @@ pub fn get_signer(
 
 fn get_keystore() -> Result<KeyStore, Error> {
     let ckb_cli_dir = if let Ok(dir) = env::var("CKB_CLI_HOME") {
+        PathBuf::from(dir)
+    } else if let Some(mut dir) = home::home_dir() {
+        // for windows compatibility
+        dir.push(".ckb-cli");
         dir
-    } else if let Ok(home) = env::var("HOME") {
-        format!("{}/.ckb-cli", home)
     } else {
         return Err(anyhow!(
-            "CKB_CLI_HOME and HOME environment variables not set"
+            "CKB_CLI_HOME environment variable not set, and can't get HOME directory"
         ));
     };
-    let mut keystore_dir = PathBuf::from(ckb_cli_dir);
+    let mut keystore_dir = ckb_cli_dir;
+    // for windows compatibility
     keystore_dir.push("keystore");
     Ok(KeyStore::from_dir(keystore_dir, ScryptType::default())?)
 }

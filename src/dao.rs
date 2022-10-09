@@ -150,7 +150,7 @@ pub fn invoke(rpc_url: &str, cmd: DaoCommands, debug: bool) -> Result<(), Error>
                 serde_json::to_string_pretty(&serde_json::json!({
                     "live_cells": cells,
                     "total_capacity": total_capacity,
-                }),)
+                }))
                 .unwrap()
             );
         }
@@ -162,7 +162,7 @@ pub fn invoke(rpc_url: &str, cmd: DaoCommands, debug: bool) -> Result<(), Error>
                 serde_json::to_string_pretty(&serde_json::json!({
                     "live_cells": cells,
                     "total_capacity": total_capacity,
-                }),)
+                }))
                 .unwrap()
             );
         }
@@ -242,7 +242,7 @@ fn build_and_send_dao_tx(
     if debug {
         println!("tx: {}", serde_json::to_string_pretty(&json_tx).unwrap());
     }
-    let tx_hash = LightClientRpcClient::new(rpc_url)
+    let tx_hash = client
         .send_transaction(json_tx.inner)
         .expect("send transaction");
     println!(">>> tx sent! {:#x} <<<", tx_hash);
@@ -251,7 +251,7 @@ fn build_and_send_dao_tx(
 
 fn parse_out_points(out_points: Vec<String>) -> Result<Vec<OutPoint>, Error> {
     if out_points.is_empty() {
-        return Err(anyhow!("missing out poinst"));
+        return Err(anyhow!("missing out points"));
     }
     out_points
         .into_iter()
@@ -277,24 +277,24 @@ fn parse_out_points(out_points: Vec<String>) -> Result<Vec<OutPoint>, Error> {
 
 // LiveCell index in a block
 #[derive(Serialize)]
-pub struct CellIndex {
-    pub tx_index: u32,
-    pub output_index: u32,
+struct CellIndex {
+    tx_index: u32,
+    output_index: u32,
 }
 #[derive(Serialize)]
 struct LiveCellInfo {
-    pub tx_hash: H256,
-    pub output_index: u32,
-    pub data_bytes: u64,
-    pub lock_hash: H256,
+    tx_hash: H256,
+    output_index: u32,
+    data_bytes: u64,
+    lock_hash: H256,
     // Type script's code_hash and script_hash
-    pub type_hashes: Option<(H256, H256)>,
+    type_hashes: Option<(H256, H256)>,
     // Capacity
-    pub capacity: u64,
+    capacity: u64,
     // Block number
-    pub number: u64,
+    number: u64,
     // Location in the block
-    pub index: CellIndex,
+    index: CellIndex,
 }
 fn to_live_cell_info(cell: &LiveCell) -> LiveCellInfo {
     let output_index: u32 = cell.out_point.index().unpack();
