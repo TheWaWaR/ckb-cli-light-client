@@ -11,8 +11,10 @@ use ckb_sdk::{
     },
     types::Address,
 };
-use ckb_types::{h256, packed::Script, H256};
+use ckb_types::{h256, packed::Script};
 use clap::{Subcommand, ValueEnum};
+
+use crate::common::{remove0x, HexH256};
 
 #[derive(Subcommand, Debug)]
 pub enum RpcCommands {
@@ -57,25 +59,25 @@ pub enum RpcCommands {
     GetGenesisBlock,
     GetHeader {
         #[arg(long, value_name = "H256")]
-        block_hash: H256,
+        block_hash: HexH256,
     },
     GetTransaction {
         #[arg(long, value_name = "H256")]
-        tx_hash: H256,
+        tx_hash: HexH256,
     },
     /// Fetch a header from remote node.
     ///
     /// Returns: FetchStatus<HeaderView>
     FetchHeader {
         #[arg(long, value_name = "H256")]
-        block_hash: H256,
+        block_hash: HexH256,
     },
     /// Fetch a transaction from remote node.
     ///
     /// Returns: FetchStatus<TransactionWithHeader>
     FetchTransaction {
         #[arg(long, value_name = "H256")]
-        tx_hash: H256,
+        tx_hash: HexH256,
     },
     /// Remove fetched headers.
     ///
@@ -84,7 +86,7 @@ pub enum RpcCommands {
     RemoveHeaders {
         /// The headers to remove, leaving this argument empty to remove all headers
         #[arg(long, value_name = "Option<Vec<H256>>")]
-        block_hashes: Option<Vec<H256>>,
+        block_hashes: Option<Vec<HexH256>>,
     },
     /// Remove fetched transactions.
     ///
@@ -93,7 +95,7 @@ pub enum RpcCommands {
     RemoveTransactions {
         /// The transactions to remove, leaving this argument empty to remove all transactions
         #[arg(long, value_name = "Option<Vec<H256>>")]
-        tx_hashes: Option<Vec<H256>>,
+        tx_hashes: Option<Vec<HexH256>>,
     },
     GetPeers,
 }
@@ -162,13 +164,7 @@ pub fn invoke(rpc_url: &str, cmd: RpcCommands, debug: bool) -> Result<(), Error>
             let search_key: SearchKey = serde_json::from_str(&content)?;
             let after = after
                 .as_ref()
-                .map(|s| {
-                    if let Some(stripped) = s.strip_prefix("0x") {
-                        stripped
-                    } else {
-                        &s[..]
-                    }
-                })
+                .map(|s| remove0x(s))
                 .map(|s| hex::decode(s).map(json_types::JsonBytes::from_vec))
                 .transpose()
                 .map_err(|err| anyhow!("parse `after` field error: {}", err))?;
@@ -185,13 +181,7 @@ pub fn invoke(rpc_url: &str, cmd: RpcCommands, debug: bool) -> Result<(), Error>
             let search_key: SearchKey = serde_json::from_str(&content)?;
             let after = after
                 .as_ref()
-                .map(|s| {
-                    if let Some(stripped) = s.strip_prefix("0x") {
-                        stripped
-                    } else {
-                        &s[..]
-                    }
-                })
+                .map(|s| remove0x(s))
                 .map(|s| hex::decode(&s).map(json_types::JsonBytes::from_vec))
                 .transpose()
                 .map_err(|err| anyhow!("parse `after` field error: {}", err))?;
@@ -219,27 +209,31 @@ pub fn invoke(rpc_url: &str, cmd: RpcCommands, debug: bool) -> Result<(), Error>
             println!("{}", serde_json::to_string_pretty(&block).unwrap());
         }
         RpcCommands::GetHeader { block_hash } => {
-            let value = client.get_header(block_hash)?;
+            let value = client.get_header(block_hash.0)?;
             println!("{}", serde_json::to_string_pretty(&value).unwrap());
         }
         RpcCommands::GetTransaction { tx_hash } => {
-            let value = client.get_transaction(tx_hash)?;
+            let value = client.get_transaction(tx_hash.0)?;
             println!("{}", serde_json::to_string_pretty(&value).unwrap());
         }
         RpcCommands::FetchHeader { block_hash } => {
-            let value = client.fetch_header(block_hash)?;
+            let value = client.fetch_header(block_hash.0)?;
             println!("{}", serde_json::to_string_pretty(&value).unwrap());
         }
         RpcCommands::FetchTransaction { tx_hash } => {
-            let value = client.fetch_transaction(tx_hash)?;
+            let value = client.fetch_transaction(tx_hash.0)?;
             println!("{}", serde_json::to_string_pretty(&value).unwrap());
         }
         RpcCommands::RemoveHeaders { block_hashes } => {
-            let value = client.remove_headers(block_hashes)?;
+            let value = client.remove_headers(
+                block_hashes.map(|hashes| hashes.into_iter().map(|v| v.0).collect()),
+            )?;
             println!("{}", serde_json::to_string_pretty(&value).unwrap());
         }
         RpcCommands::RemoveTransactions { tx_hashes } => {
-            let value = client.remove_transactions(tx_hashes)?;
+            let value = client.remove_transactions(
+                tx_hashes.map(|hashes| hashes.into_iter().map(|v| v.0).collect()),
+            )?;
             println!("{}", serde_json::to_string_pretty(&value).unwrap());
         }
         RpcCommands::GetPeers => {

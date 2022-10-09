@@ -34,7 +34,8 @@ use ckb_types::{
 use clap::{ArgGroup, Subcommand};
 use serde::Serialize;
 
-use super::wallet::get_signer;
+use crate::common::remove0x;
+use crate::wallet::get_signer;
 
 #[derive(Subcommand, Debug)]
 pub enum DaoCommands {
@@ -263,11 +264,7 @@ fn parse_out_points(out_points: Vec<String>) -> Result<Vec<OutPoint>, Error> {
                     input
                 ));
             }
-            let tx_hash_str = if let Some(stripped) = parts[0].strip_prefix("0x") {
-                stripped
-            } else {
-                parts[0]
-            };
+            let tx_hash_str = remove0x(parts[0]);
             let tx_hash: H256 = H256::from_str(tx_hash_str)?;
             let index = u32::from_str(parts[1])?;
             Ok(OutPoint::new(tx_hash.pack(), index))

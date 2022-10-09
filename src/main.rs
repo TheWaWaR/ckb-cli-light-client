@@ -1,9 +1,9 @@
 use std::error::Error as StdErr;
 
 use ckb_sdk::types::{Address, HumanCapacity};
-use ckb_types::H256;
 use clap::{ArgGroup, Parser, Subcommand};
 
+mod common;
 mod dao;
 mod rpc;
 mod wallet;
@@ -40,7 +40,7 @@ enum Commands {
 
         /// The sender private key (hex string, also used to generate sighash address)
         #[arg(long, value_name = "PRIVKEY")]
-        from_key: Option<H256>,
+        from_key: Option<common::HexH256>,
 
         /// The receiver address
         #[arg(long, value_name = "ADDR")]
@@ -87,7 +87,7 @@ fn main() -> Result<(), Box<dyn StdErr>> {
             wallet::transfer(
                 cli.rpc.as_str(),
                 from_address,
-                from_key,
+                from_key.map(|v| v.0),
                 to_address,
                 capacity.0,
                 skip_check_to_address,
