@@ -1,33 +1,32 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 use anyhow::{anyhow, Error};
 use ckb_jsonrpc_types as json_types;
-use ckb_sdk::rpc::ckb_light_client::{
-    LightClientRpcClient, Order as JsonOrder, ScriptStatus, ScriptType, SearchKey, SearchKeyFilter,
+use ckb_sdk::{
+    rpc::ckb_light_client::{
+        LightClientRpcClient, Order as JsonOrder, ScriptStatus, ScriptType, SearchKey,
+        SearchKeyFilter,
+    },
+    Address,
 };
-use ckb_types::h256;
+use ckb_types::{h256, packed::Script};
 use clap::{Subcommand, ValueEnum};
 
 use crate::common::{remove0x, HexH256};
 
 #[derive(Subcommand, Debug)]
 pub enum RpcCommands {
+    /// Set the script status list (replace old list)
     SetScripts {
         /// The script status list
-        ///
-        /// The file data format (json):
-        /// {
-        ///   "script": {
-        ///     "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
-        ///     "hash_type": "type",
-        ///     "args": "0x0000000000000000000000000000000000000000"
-        ///   },
-        ///   "script_type": "lock",
-        ///   "block_number": "0xbb64"
-        /// }
-        #[arg(long, value_name = "FILE")]
-        scripts: Vec<PathBuf>,
+        #[arg(
+            long,
+            value_name = "FILE|ADDR-INT",
+            long_help = "The script status list.\n\nThe argument format can be a string for lock script or a JSON file for any script type.\nThe string format: \"ADDR,NUM\", example: \"ckt1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq,5896000\".\nThe file data format (json):\n{\n  \"script\": {\n    \"code_hash\": \"0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8\",\n    \"hash_type\": \"type\",\n    \"args\": \"0x0000000000000000000000000000000000000000\"\n  },\n  \"script_type\": \"lock\",\n  \"block_number\": \"0xbb64\"\n}"
+        )]
+        scripts: Vec<String>,
 
         /// Default will forbid empty script status list, use this flag to
         /// accept empty script status list.
@@ -123,8 +122,12 @@ pub fn invoke(rpc_url: &str, cmd: RpcCommands, debug: bool) -> Result<(), Error>
             let scripts = scripts
                 .into_iter()
                 .map(|status| {
-                    let content = fs::read_to_string(&status)?;
-                    Ok(serde_json::from_str(&content)?)
+                    if Path::new(status.as_str()).exists() {
+                        let content = fs::read_to_string(&status)?;
+                        Ok(serde_json::from_str(&content)?)
+                    } else {
+                        parse_addr_script(status.as_str())
+                    }
                 })
                 .collect::<Result<Vec<ScriptStatus>, Error>>()?;
             if debug {
@@ -216,6 +219,23 @@ pub fn invoke(rpc_url: &str, cmd: RpcCommands, debug: bool) -> Result<(), Error>
         }
     }
     Ok(())
+}
+
+fn parse_addr_script(input: &str) -> Result<ScriptStatus, Error> {
+    let parts = input.split(',').collect::<Vec<_>>();
+    if parts.len() != 2 {
+        return Err(anyhow!("invalid script status: {}", input));
+    }
+    let address = Address::from_str(parts[0])
+        .map_err(|err| anyhow!("parse script status address error: {}", err))?;
+    let script: ckb_jsonrpc_types::Script = Script::from(&address).into();
+    let block_number = u64::from_str(parts[1])
+        .map_err(|err| anyhow!("parse script status block number error: {}", err))?;
+    Ok(ScriptStatus {
+        script,
+        script_type: ScriptType::Lock,
+        block_number: block_number.into(),
+    })
 }
 
 pub fn print_example_search_key(with_filter: bool) {
