@@ -35,7 +35,7 @@ use clap::{ArgGroup, Subcommand};
 use serde::Serialize;
 
 use crate::common::remove0x;
-use crate::wallet::get_signer;
+use crate::wallet::{check_address, get_signer};
 
 #[derive(Subcommand, Debug)]
 pub enum DaoCommands {
@@ -182,13 +182,18 @@ fn build_and_send_dao_tx(
         fee_rate: FeeRate::from_u64(1000),
         change_lock_script: None,
         capacity_provider: CapacityProvider::new_simple(vec![(
-            sender,
+            sender.clone(),
             WitnessArgs::new_builder()
                 .lock(Some(Bytes::from(vec![0u8; 65])).pack())
                 .build(),
         )]),
         force_small_change_as_fee: None,
     };
+    let mut client = LightClientRpcClient::new(rpc_url);
+    let (synced_number, cells_capacity) = check_address(&mut client, sender.into())?;
+    println!("synchronized number: {}", synced_number);
+    println!("tip number: {}", cells_capacity.block_number.value());
+    println!("tip hash: {:#x}", cells_capacity.block_hash);
 
     let script_id = ScriptId::new_type(SIGHASH_TYPE_HASH.clone());
     let sighash_unlocker = SecpSighashUnlocker::new(SecpSighashScriptSigner::new(signer));
@@ -200,7 +205,6 @@ fn build_and_send_dao_tx(
     //   * HeaderDepResolver
     //   * CellCollector
     //   * TransactionDependencyProvider
-    let mut client = LightClientRpcClient::new(rpc_url);
     let genesis_block = client.get_genesis_block()?.into();
     let cell_dep_resolver = DefaultCellDepResolver::from_genesis(&genesis_block)?;
     let header_dep_resolver = LightClientHeaderDepResolver::new(rpc_url);

@@ -8,7 +8,7 @@ use ckb_jsonrpc_types as json_types;
 use ckb_sdk::{
     constants::{MULTISIG_TYPE_HASH, SIGHASH_TYPE_HASH},
     rpc::{
-        ckb_light_client::{ScriptType, SearchKey},
+        ckb_light_client::{CellsCapacity, ScriptType, SearchKey},
         LightClientRpcClient,
     },
     traits::{
@@ -33,23 +33,7 @@ use ckb_types::{
 pub fn get_capacity(rpc_url: &str, address: Address) -> Result<(), Error> {
     let mut client = LightClientRpcClient::new(rpc_url);
     let script = Script::from(&address).into();
-    let synced_number = if let Some(status) = client
-        .get_scripts()?
-        .iter()
-        .find(|status| status.script == script)
-    {
-        status.block_number.value()
-    } else {
-        return Err(anyhow!("address not registered, you may use `rpc set-scripts` subcommand to register the address"));
-    };
-    let search_key = SearchKey {
-        script,
-        script_type: ScriptType::Lock,
-        filter: None,
-        with_data: None,
-        group_by_transaction: None,
-    };
-    let cells_capacity = client.get_cells_capacity(search_key)?;
+    let (synced_number, cells_capacity) = check_address(&mut client, script)?;
     println!("synchronized number: {}", synced_number);
     println!("tip number: {}", cells_capacity.block_number.value());
     println!("tip hash: {:#x}", cells_capacity.block_hash);
@@ -98,6 +82,12 @@ fn build_transfer_tx(
     skip_check_to_address: bool,
 ) -> Result<TransactionView, Error> {
     let (sender, signer) = get_signer(from_address, from_key)?;
+    let mut client = LightClientRpcClient::new(rpc_url);
+    let (synced_number, cells_capacity) = check_address(&mut client, sender.clone().into())?;
+    println!("synchronized number: {}", synced_number);
+    println!("tip number: {}", cells_capacity.block_number.value());
+    println!("tip hash: {:#x}", cells_capacity.block_hash);
+
     let sighash_unlocker = SecpSighashUnlocker::from(signer);
     let sighash_script_id = ScriptId::new_type(SIGHASH_TYPE_HASH.clone());
     let mut unlockers = HashMap::default();
@@ -111,7 +101,6 @@ fn build_transfer_tx(
     //   * HeaderDepResolver
     //   * CellCollector
     //   * TransactionDependencyProvider
-    let mut client = LightClientRpcClient::new(rpc_url);
     let genesis_block = client.get_genesis_block()?.into();
     let cell_dep_resolver = DefaultCellDepResolver::from_genesis(&genesis_block)?;
     let header_dep_resolver = LightClientHeaderDepResolver::new(rpc_url);
@@ -157,6 +146,30 @@ fn build_transfer_tx(
     )?;
     assert!(still_locked_groups.is_empty());
     Ok(tx)
+}
+
+pub fn check_address(
+    client: &mut LightClientRpcClient,
+    script: json_types::Script,
+) -> Result<(u64, CellsCapacity), Error> {
+    let synced_number = if let Some(status) = client
+        .get_scripts()?
+        .iter()
+        .find(|status| status.script == script)
+    {
+        status.block_number.value()
+    } else {
+        return Err(anyhow!("address not registered, you may use `rpc set-scripts` subcommand to register the address"));
+    };
+    let search_key = SearchKey {
+        script,
+        script_type: ScriptType::Lock,
+        filter: None,
+        with_data: None,
+        group_by_transaction: None,
+    };
+    let cells_capacity = client.get_cells_capacity(search_key)?;
+    Ok((synced_number, cells_capacity))
 }
 
 pub fn get_signer(
