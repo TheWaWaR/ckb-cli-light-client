@@ -33,13 +33,15 @@ use ckb_types::{
 pub fn get_capacity(rpc_url: &str, address: Address) -> Result<(), Error> {
     let mut client = LightClientRpcClient::new(rpc_url);
     let script = Script::from(&address).into();
-    if !client
+    let synced_number = if let Some(status) = client
         .get_scripts()?
         .iter()
-        .any(|status| status.script == script)
+        .find(|status| status.script == script)
     {
+        status.block_number.value()
+    } else {
         return Err(anyhow!("address not registered, you may use `rpc set-scripts` subcommand to register the address"));
-    }
+    };
     let search_key = SearchKey {
         script,
         script_type: ScriptType::Lock,
@@ -47,8 +49,14 @@ pub fn get_capacity(rpc_url: &str, address: Address) -> Result<(), Error> {
         with_data: None,
         group_by_transaction: None,
     };
-    let capacity: u64 = client.get_cells_capacity(search_key)?.capacity.value();
-    println!("capacity: {} CKB", HumanCapacity(capacity));
+    let cells_capacity = client.get_cells_capacity(search_key)?;
+    println!("synchronized number: {}", synced_number);
+    println!("tip number: {}", cells_capacity.block_number.value());
+    println!("tip hash: {:#x}", cells_capacity.block_hash);
+    println!(
+        "capacity: {} CKB",
+        HumanCapacity(cells_capacity.capacity.value())
+    );
     Ok(())
 }
 
