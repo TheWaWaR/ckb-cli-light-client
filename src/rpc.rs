@@ -24,7 +24,7 @@ pub enum RpcCommands {
         #[arg(
             long,
             value_name = "FILE|ADDR-INT",
-            long_help = "The script status list.\n\nThe argument format can be a string for lock script or a JSON file for any script type.\nThe string format: \"ADDR,NUM\", example: \"ckt1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq,5896000\".\nThe file data format (json):\n{\n  \"script\": {\n    \"code_hash\": \"0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8\",\n    \"hash_type\": \"type\",\n    \"args\": \"0x0000000000000000000000000000000000000000\"\n  },\n  \"script_type\": \"lock\",\n  \"block_number\": \"0xbb64\"\n}"
+            long_help = "The script status list.\n\nThe argument format can be a string for lock script or a JSON file for any script type.\nThe string format: \"ADDR,NUM\", example: \"ckt1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqgaqanf,5896000\".\nThe file data format (json):\n{\n  \"script\": {\n    \"code_hash\": \"0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8\",\n    \"hash_type\": \"type\",\n    \"args\": \"0x0000000000000000000000000000000000000000\"\n  },\n  \"script_type\": \"lock\",\n  \"block_number\": \"0xbb64\"\n}"
         )]
         scripts: Vec<String>,
 
