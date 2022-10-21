@@ -244,9 +244,9 @@ pub fn print_example_search_key(
     get_cells: bool,
     get_cells_capacity: bool,
 ) {
-    assert_eq!(get_transactions && get_cells, false);
-    assert_eq!(get_cells && get_cells_capacity, false);
-    assert_eq!(get_transactions && get_cells_capacity, false);
+    assert!(!get_transactions || !get_cells);
+    assert!(!get_cells || !get_cells_capacity);
+    assert!(!get_transactions || !get_cells_capacity);
     let mut search_key = SearchKey {
         script: json_types::Script {
             code_hash: h256!("0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8"),
@@ -273,20 +273,22 @@ pub fn print_example_search_key(
             block_range: Some([33.into(), 999.into()]),
         });
     }
+    let mut value = serde_json::to_value(search_key).unwrap();
+    let map = value.as_object_mut().unwrap();
     if get_transactions {
-        search_key.with_data = None;
-        if let Some(filter) = search_key.filter.as_mut() {
-            filter.script_len_range = None;
-            filter.output_data_len_range = None;
-            filter.output_capacity_range = None;
+        map.remove("with_data");
+        if let Some(filter) = map["filter"].as_object_mut() {
+            filter.remove("script_len_range");
+            filter.remove("output_data_len_range");
+            filter.remove("output_capacity_range");
         }
     }
     if get_cells {
-        search_key.group_by_transaction = None;
+        map.remove("group_by_transaction");
     }
     if get_cells_capacity {
-        search_key.with_data = None;
-        search_key.group_by_transaction = None;
+        map.remove("with_data");
+        map.remove("group_by_transaction");
     }
-    println!("{}", serde_json::to_string_pretty(&search_key).unwrap());
+    println!("{}", serde_json::to_string_pretty(&value).unwrap());
 }
