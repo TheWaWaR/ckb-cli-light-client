@@ -1,17 +1,12 @@
 use std::fs;
 use std::path::PathBuf;
-use std::str::FromStr;
 
 use anyhow::{anyhow, Error};
 use ckb_jsonrpc_types as json_types;
-use ckb_sdk::{
-    rpc::ckb_light_client::{
-        LightClientRpcClient, Order as JsonOrder, ScriptStatus, ScriptType, SearchKey,
-        SearchKeyFilter,
-    },
-    types::Address,
+use ckb_sdk::rpc::ckb_light_client::{
+    LightClientRpcClient, Order as JsonOrder, ScriptStatus, ScriptType, SearchKey, SearchKeyFilter,
 };
-use ckb_types::{h256, packed::Script};
+use ckb_types::h256;
 use clap::{Subcommand, ValueEnum};
 
 use crate::common::{remove0x, HexH256};
@@ -19,9 +14,25 @@ use crate::common::{remove0x, HexH256};
 #[derive(Subcommand, Debug)]
 pub enum RpcCommands {
     SetScripts {
-        /// The script status list (format: "ADDR,NUM", example: "ckt1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq,5896000")
-        #[arg(long, value_name = "SCRIPT_STATUS")]
-        scripts: Vec<String>,
+        /// The script status list
+        ///
+        /// The file data format (json):
+        /// {
+        ///   "script": {
+        ///     "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+        ///     "hash_type": "type",
+        ///     "args": "0x0000000000000000000000000000000000000000"
+        ///   },
+        ///   "script_type": "lock",
+        ///   "block_number": "0xbb64"
+        /// }
+        #[arg(long, value_name = "FILE")]
+        scripts: Vec<PathBuf>,
+
+        /// Default will forbid empty script status list, use this flag to
+        /// accept empty script status list.
+        #[arg(long)]
+        allow_empty: bool,
     },
     GetScripts,
     GetCells {
@@ -79,24 +90,6 @@ pub enum RpcCommands {
         #[arg(long, value_name = "H256")]
         tx_hash: HexH256,
     },
-    /// Remove fetched headers.
-    ///
-    /// Returns:
-    ///   * The removed block hashes
-    RemoveHeaders {
-        /// The headers to remove, leaving this argument empty to remove all headers
-        #[arg(long, value_name = "Option<Vec<H256>>")]
-        block_hashes: Option<Vec<HexH256>>,
-    },
-    /// Remove fetched transactions.
-    ///
-    /// Returns:
-    ///   * The removed transaction hashes
-    RemoveTransactions {
-        /// The transactions to remove, leaving this argument empty to remove all transactions
-        #[arg(long, value_name = "Option<Vec<H256>>")]
-        tx_hashes: Option<Vec<HexH256>>,
-    },
     GetPeers,
 }
 
@@ -118,24 +111,20 @@ impl From<Order> for JsonOrder {
 pub fn invoke(rpc_url: &str, cmd: RpcCommands, debug: bool) -> Result<(), Error> {
     let mut client = LightClientRpcClient::new(rpc_url);
     match cmd {
-        RpcCommands::SetScripts { scripts } => {
+        RpcCommands::SetScripts {
+            scripts,
+            allow_empty,
+        } => {
+            if scripts.is_empty() && !allow_empty {
+                return Err(anyhow!(
+                    "You may use `--allow-empty` flag to set empty script status list"
+                ));
+            }
             let scripts = scripts
                 .into_iter()
                 .map(|status| {
-                    let parts = status.split(',').collect::<Vec<_>>();
-                    if parts.len() != 2 {
-                        return Err(anyhow!("invalid script status: {}", status));
-                    }
-                    let address = Address::from_str(parts[0])
-                        .map_err(|err| anyhow!("parse script status address error: {}", err))?;
-                    let script: ckb_jsonrpc_types::Script = Script::from(&address).into();
-                    let block_number = u64::from_str(parts[1]).map_err(|err| {
-                        anyhow!("parse script status block number error: {}", err)
-                    })?;
-                    Ok(ScriptStatus {
-                        script,
-                        block_number: block_number.into(),
-                    })
+                    let content = fs::read_to_string(&status)?;
+                    Ok(serde_json::from_str(&content)?)
                 })
                 .collect::<Result<Vec<ScriptStatus>, Error>>()?;
             if debug {
@@ -149,10 +138,7 @@ pub fn invoke(rpc_url: &str, cmd: RpcCommands, debug: bool) -> Result<(), Error>
         }
         RpcCommands::GetScripts => {
             let scripts = client.get_scripts()?;
-            println!(
-                "scripts: \n{}",
-                serde_json::to_string_pretty(&scripts).unwrap()
-            );
+            println!("{}", serde_json::to_string_pretty(&scripts).unwrap());
         }
         RpcCommands::GetCells {
             search_key,
@@ -191,8 +177,8 @@ pub fn invoke(rpc_url: &str, cmd: RpcCommands, debug: bool) -> Result<(), Error>
         RpcCommands::GetCellsCapacity { search_key } => {
             let content = fs::read_to_string(&search_key)?;
             let search_key: SearchKey = serde_json::from_str(&content)?;
-            let capacity: u64 = client.get_cells_capacity(search_key)?.value();
-            println!("capacity: {}", capacity);
+            let cells_capacity = client.get_cells_capacity(search_key)?;
+            println!("{}", serde_json::to_string_pretty(&cells_capacity).unwrap());
         }
         RpcCommands::SendTransaction { transaction } => {
             let content = fs::read_to_string(&transaction)?;
@@ -224,18 +210,6 @@ pub fn invoke(rpc_url: &str, cmd: RpcCommands, debug: bool) -> Result<(), Error>
             let value = client.fetch_transaction(tx_hash.0)?;
             println!("{}", serde_json::to_string_pretty(&value).unwrap());
         }
-        RpcCommands::RemoveHeaders { block_hashes } => {
-            let value = client.remove_headers(
-                block_hashes.map(|hashes| hashes.into_iter().map(|v| v.0).collect()),
-            )?;
-            println!("{}", serde_json::to_string_pretty(&value).unwrap());
-        }
-        RpcCommands::RemoveTransactions { tx_hashes } => {
-            let value = client.remove_transactions(
-                tx_hashes.map(|hashes| hashes.into_iter().map(|v| v.0).collect()),
-            )?;
-            println!("{}", serde_json::to_string_pretty(&value).unwrap());
-        }
         RpcCommands::GetPeers => {
             let peers = client.get_peers()?;
             println!("{}", serde_json::to_string_pretty(&peers).unwrap());
@@ -253,6 +227,7 @@ pub fn print_example_search_key(with_filter: bool) {
         },
         script_type: ScriptType::Lock,
         filter: None,
+        with_data: Some(false),
         group_by_transaction: None,
     };
     if with_filter {
@@ -264,6 +239,7 @@ pub fn print_example_search_key(with_filter: bool) {
                 hash_type: json_types::ScriptHashType::Type,
                 args: json_types::JsonBytes::from_vec(vec![0, 1, 2, 3]),
             }),
+            script_len_range: None,
             output_data_len_range: Some([22.into(), 888.into()]),
             output_capacity_range: Some([1000000.into(), 100000000.into()]),
             block_range: Some([33.into(), 999.into()]),

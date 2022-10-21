@@ -44,9 +44,10 @@ pub fn get_capacity(rpc_url: &str, address: Address) -> Result<(), Error> {
         script,
         script_type: ScriptType::Lock,
         filter: None,
+        with_data: None,
         group_by_transaction: None,
     };
-    let capacity: u64 = client.get_cells_capacity(search_key)?.value();
+    let capacity: u64 = client.get_cells_capacity(search_key)?.capacity.value();
     println!("capacity: {} CKB", HumanCapacity(capacity));
     Ok(())
 }
