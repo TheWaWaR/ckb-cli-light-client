@@ -238,7 +238,15 @@ fn parse_addr_script(input: &str) -> Result<ScriptStatus, Error> {
     })
 }
 
-pub fn print_example_search_key(with_filter: bool) {
+pub fn print_example_search_key(
+    with_filter: bool,
+    get_transactions: bool,
+    get_cells: bool,
+    get_cells_capacity: bool,
+) {
+    assert_eq!(get_transactions && get_cells, false);
+    assert_eq!(get_cells && get_cells_capacity, false);
+    assert_eq!(get_transactions && get_cells_capacity, false);
     let mut search_key = SearchKey {
         script: json_types::Script {
             code_hash: h256!("0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8"),
@@ -248,7 +256,7 @@ pub fn print_example_search_key(with_filter: bool) {
         script_type: ScriptType::Lock,
         filter: None,
         with_data: Some(false),
-        group_by_transaction: None,
+        group_by_transaction: Some(false),
     };
     if with_filter {
         search_key.filter = Some(SearchKeyFilter {
@@ -259,11 +267,26 @@ pub fn print_example_search_key(with_filter: bool) {
                 hash_type: json_types::ScriptHashType::Type,
                 args: json_types::JsonBytes::from_vec(vec![0, 1, 2, 3]),
             }),
-            script_len_range: None,
+            script_len_range: Some([0.into(), 111.into()]),
             output_data_len_range: Some([22.into(), 888.into()]),
             output_capacity_range: Some([1000000.into(), 100000000.into()]),
             block_range: Some([33.into(), 999.into()]),
         });
+    }
+    if get_transactions {
+        search_key.with_data = None;
+        if let Some(filter) = search_key.filter.as_mut() {
+            filter.script_len_range = None;
+            filter.output_data_len_range = None;
+            filter.output_capacity_range = None;
+        }
+    }
+    if get_cells {
+        search_key.group_by_transaction = None;
+    }
+    if get_cells_capacity {
+        search_key.with_data = None;
+        search_key.group_by_transaction = None;
     }
     println!("{}", serde_json::to_string_pretty(&search_key).unwrap());
 }

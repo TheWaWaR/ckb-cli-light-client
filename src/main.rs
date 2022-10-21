@@ -34,11 +34,11 @@ enum Commands {
     /// Transfer some capacity from given address to a receiver address
     #[command(group(ArgGroup::new("from").required(true).args(["from_address", "from_key"])))]
     Transfer {
-        /// The sender address (sighash only, also used to match key in ckb-cli keystore)
+        /// The sender address (sighash only, also be used to match key in ckb-cli keystore)
         #[arg(long, value_name = "ADDR")]
         from_address: Option<Address>,
 
-        /// The sender private key (hex string, also used to generate sighash address)
+        /// The sender private key (hex string, also be used to generate sighash address)
         #[arg(long, value_name = "PRIVKEY")]
         from_key: Option<common::HexH256>,
 
@@ -60,10 +60,20 @@ enum Commands {
     Dao(dao::DaoCommands),
 
     /// Output the example `SearchKey` value
+    #[command(group(ArgGroup::new("rpc-method").required(false).args(["get_transactions", "get_cells", "get_cells_capacity"])))]
     ExampleSearchKey {
         /// With example `SearchKeyFilter` value
         #[arg(long)]
         with_filter: bool,
+        /// Set appropriate default `SearchKeyFilter` for `get_transactions` RPC method
+        #[arg(long)]
+        get_transactions: bool,
+        /// Set appropriate default `SearchKeyFilter` for `get_cells` RPC method
+        #[arg(long)]
+        get_cells: bool,
+        /// Set appropriate default `SearchKeyFilter` for `get_cells_capacity` RPC method
+        #[arg(long)]
+        get_cells_capacity: bool,
     },
 
     /// Send jsonrpc call the ckb-light-client rpc server
@@ -97,8 +107,18 @@ fn main() -> Result<(), Box<dyn StdErr>> {
         Commands::Dao(cmd) => {
             dao::invoke(cli.rpc.as_str(), cmd, cli.debug)?;
         }
-        Commands::ExampleSearchKey { with_filter } => {
-            rpc::print_example_search_key(with_filter);
+        Commands::ExampleSearchKey {
+            with_filter,
+            get_transactions,
+            get_cells,
+            get_cells_capacity,
+        } => {
+            rpc::print_example_search_key(
+                with_filter,
+                get_transactions,
+                get_cells,
+                get_cells_capacity,
+            );
         }
         Commands::Rpc(cmd) => {
             rpc::invoke(cli.rpc.as_str(), cmd, cli.debug)?;
