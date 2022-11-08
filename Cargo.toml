@@ -2,6 +2,12 @@
 name = "ckb-cli-light-client"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+authors = ["Linfeng Qian <thewawar@gmail.com>", "Nervos Core Dev <dev@nervos.org>"]
+description = "ckb light client command line interface"
+keywords = ["ckb", "cli", "ckb-cli", "light", "client"]
+homepage = "https://github.com/thewawar/ckb-cli-light-client"
+repository = "https://github.com/thewawar/ckb-cli-light-client"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
